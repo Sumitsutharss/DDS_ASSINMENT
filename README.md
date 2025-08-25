@@ -1,25 +1,26 @@
-🚀 Projects Included
+📌 Projects
+1️⃣ Personal Finance Tracker
 
-Personal Finance Tracker
+Track income, expenses, and savings goals.
 
-Track income, expenses, and savings.
+Supports sorting, searching, filtering (e.g., expenses > $100).
 
-Features sorting, searching, filtering, and file persistence.
+File storage for persistence.
 
 Bonus: ASCII bar chart for monthly spending.
 
-E-Library Book Management
+2️⃣ E-Library Book Management
 
-Manage books using linked lists.
+Manage a collection of books using a linked list.
 
-Borrow/return books with an undo feature (stack).
+Borrow/return books with undo functionality (stack).
 
 Search/filter by title or author.
 
-Hospital Patient Queue
+3️⃣ Hospital Patient Queue
 
-Simulate patient management in a hospital.
+Simulate hospital patient management.
 
-Uses priority queue for critical patients and normal queue for regular cases.
+Priority Queue for critical patients, normal queue for regular cases.
 
-Tracks estimated wait times.
+Display estimated wait times.
