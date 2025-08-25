@@ -1,0 +1,476 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#define MAX_NAME_LEN 50
+#define MAX_CONDITION_LEN 100
+#define REGULAR_SERVICE_TIME 15  // minutes per regular patient
+#define CRITICAL_SERVICE_TIME 30 // minutes per critical patient
+
+// Patient structure
+typedef struct Patient {
+    int id;
+    char name[MAX_NAME_LEN];
+    char condition[MAX_CONDITION_LEN];
+    int is_critical;
+    time_t arrival_time;
+    int estimated_wait_time;
+    struct Patient *next;
+} Patient;
+
+// Queue structures
+typedef struct {
+    Patient *front;
+    Patient *rear;
+    int count;
+} Queue;
+
+// Global queues and variables
+Queue regular_queue = {NULL, NULL, 0};
+Queue critical_queue = {NULL, NULL, 0};
+int next_patient_id = 1;
+int total_patients_served = 0;
+time_t hospital_start_time;
+
+// Function prototypes - Main operations
+void display_menu(void);
+void add_patient(void);
+void serve_next_patient(void);
+void display_queues(void);
+void display_wait_times(void);
+void emergency_patient(void);
+void display_statistics(void);
+void save_patient_log(void);
+
+// Queue operations
+void enqueue(Queue *q, Patient *patient);
+Patient* dequeue(Queue *q);
+Patient* peek_queue(Queue *q);
+int is_queue_empty(Queue *q);
+void clear_queue(Queue *q);
+
+// Patient management
+Patient* create_patient(const char *name, const char *condition, int is_critical);
+void update_wait_times(void);
+int calculate_estimated_wait(int is_critical);
+void print_patient(const Patient *p, int position);
+
+// Utility functions
+void clear_input_buffer(void);
+char* get_input(char *buffer, int size);
+void print_time(time_t t);
+int time_diff_minutes(time_t start, time_t end);
+
+int main() {
+    hospital_start_time = time(NULL);
+    
+    printf("=== Hospital Patient Queue Management ===\n");
+    printf("System started at: ");
+    print_time(hospital_start_time);
+    printf("\n");
+    
+    int choice;
+    do {
+        // Update wait times every time we show the menu
+        update_wait_times();
+        
+        display_menu();
+        printf("Enter your choice: ");
+        scanf("%d", &choice);
+        clear_input_buffer();
+        
+        switch(choice) {
+            case 1: add_patient(); break;
+            case 2: emergency_patient(); break;
+            case 3: serve_next_patient(); break;
+            case 4: display_queues(); break;
+            case 5: display_wait_times(); break;
+            case 6: display_statistics(); break;
+            case 7: save_patient_log(); break;
+            case 8:
+                printf("Closing hospital system...\n");
+                save_patient_log();
+                break;
+            default:
+                printf("Invalid choice. Please try again.\n");
+        }
+    } while(choice != 8);
+    
+    // Cleanup
+    clear_queue(&regular_queue);
+    clear_queue(&critical_queue);
+    
+    return 0;
+}
+
+void display_menu(void) {
+    printf("\n=== HOSPITAL QUEUE SYSTEM ===\n");
+    printf("1. Add Regular Patient\n");
+    printf("2. Add Emergency Patient\n");
+    printf("3. Serve Next Patient\n");
+    printf("4. Display All Queues\n");
+    printf("5. Show Wait Times\n");
+    printf("6. Hospital Statistics\n");
+    printf("7. Save Patient Log\n");
+    printf("8. Close System\n");
+    printf("=============================\n");
+    
+    // Quick status display
+    printf("Queues: Critical [%d] | Regular [%d]\n", 
+           critical_queue.count, regular_queue.count);
+}
+
+void add_patient(void) {
+    char name[MAX_NAME_LEN], condition[MAX_CONDITION_LEN];
+    
+    printf("Enter patient name: ");
+    get_input(name, MAX_NAME_LEN);
+    
+    printf("Enter medical condition: ");
+    get_input(condition, MAX_CONDITION_LEN);
+    
+    Patient *patient = create_patient(name, condition, 0); // Regular patient
+    if (patient) {
+        patient->estimated_wait_time = calculate_estimated_wait(0);
+        enqueue(&regular_queue, patient);
+        
+        printf("Regular patient '%s' added to queue.\n", name);
+        printf("Queue position: %d\n", regular_queue.count);
+        printf("Estimated wait time: %d minutes\n", patient->estimated_wait_time);
+    } else {
+        printf("Error adding patient.\n");
+    }
+}
+
+void emergency_patient(void) {
+    char name[MAX_NAME_LEN], condition[MAX_CONDITION_LEN];
+    
+    printf("=== EMERGENCY PATIENT ===\n");
+    printf("Enter patient name: ");
+    get_input(name, MAX_NAME_LEN);
+    
+    printf("Enter critical condition: ");
+    get_input(condition, MAX_CONDITION_LEN);
+    
+    Patient *patient = create_patient(name, condition, 1); // Critical patient
+    if (patient) {
+        patient->estimated_wait_time = calculate_estimated_wait(1);
+        enqueue(&critical_queue, patient);
+        
+        printf("CRITICAL patient '%s' added to priority queue!\n", name);
+        printf("Priority position: %d\n", critical_queue.count);
+        printf("Estimated wait time: %d minutes\n", patient->estimated_wait_time);
+    } else {
+        printf("Error adding emergency patient.\n");
+    }
+}
+
+void serve_next_patient(void) {
+    Patient *patient = NULL;
+    
+    // Always serve critical patients first
+    if (!is_queue_empty(&critical_queue)) {
+        patient = dequeue(&critical_queue);
+        printf("=== SERVING CRITICAL PATIENT ===\n");
+    } else if (!is_queue_empty(&regular_queue)) {
+        patient = dequeue(&regular_queue);
+        printf("=== SERVING REGULAR PATIENT ===\n");
+    } else {
+        printf("No patients in queue.\n");
+        return;
+    }
+    
+    if (patient) {
+        time_t service_time = time(NULL);
+        int actual_wait = time_diff_minutes(patient->arrival_time, service_time);
+        
+        printf("Patient ID: %d\n", patient->id);
+        printf("Name: %s\n", patient->name);
+        printf("Condition: %s\n", patient->condition);
+        printf("Type: %s\n", patient->is_critical ? "CRITICAL" : "Regular");
+        printf("Arrival time: ");
+        print_time(patient->arrival_time);
+        printf("Service time: ");
+        print_time(service_time);
+        printf("Actual wait time: %d minutes\n", actual_wait);
+        printf("Estimated service duration: %d minutes\n", 
+               patient->is_critical ? CRITICAL_SERVICE_TIME : REGULAR_SERVICE_TIME);
+        
+        total_patients_served++;
+        free(patient);
+        
+        printf("Patient served successfully!\n");
+    }
+}
+
+void display_queues(void) {
+    printf("\n=== CURRENT QUEUES ===\n");
+    
+    // Display critical queue
+    printf("CRITICAL QUEUE (%d patients):\n", critical_queue.count);
+    if (is_queue_empty(&critical_queue)) {
+        printf("  No critical patients waiting.\n");
+    } else {
+        Patient *current = critical_queue.front;
+        int position = 1;
+        while (current) {
+            printf("  ");
+            print_patient(current, position++);
+            current = current->next;
+        }
+    }
+    
+    printf("\nREGULAR QUEUE (%d patients):\n", regular_queue.count);
+    if (is_queue_empty(&regular_queue)) {
+        printf("  No regular patients waiting.\n");
+    } else {
+        Patient *current = regular_queue.front;
+        int position = 1;
+        while (current) {
+            printf("  ");
+            print_patient(current, position++);
+            current = current->next;
+        }
+    }
+    
+    printf("\nNext to be served: ");
+    if (!is_queue_empty(&critical_queue)) {
+        printf("CRITICAL - %s\n", critical_queue.front->name);
+    } else if (!is_queue_empty(&regular_queue)) {
+        printf("Regular - %s\n", regular_queue.front->name);
+    } else {
+        printf("No patients waiting\n");
+    }
+}
+
+void display_wait_times(void) {
+    time_t current_time = time(NULL);
+    
+    printf("\n=== CURRENT WAIT TIMES ===\n");
+    printf("Current time: ");
+    print_time(current_time);
+    
+    if (!is_queue_empty(&critical_queue)) {
+        printf("\nCRITICAL QUEUE:\n");
+        Patient *current = critical_queue.front;
+        int position = 1;
+        while (current) {
+            int current_wait = time_diff_minutes(current->arrival_time, current_time);
+            printf("  %d. %s - Waiting: %d min, Estimated remaining: %d min\n",
+                   position++, current->name, current_wait, 
+                   current->estimated_wait_time > current_wait ? 
+                   current->estimated_wait_time - current_wait : 0);
+            current = current->next;
+        }
+    }
+    
+    if (!is_queue_empty(&regular_queue)) {
+        printf("\nREGULAR QUEUE:\n");
+        Patient *current = regular_queue.front;
+        int position = 1;
+        while (current) {
+            int current_wait = time_diff_minutes(current->arrival_time, current_time);
+            printf("  %d. %s - Waiting: %d min, Estimated remaining: %d min\n",
+                   position++, current->name, current_wait,
+                   current->estimated_wait_time > current_wait ? 
+                   current->estimated_wait_time - current_wait : 0);
+            current = current->next;
+        }
+    }
+    
+    if (is_queue_empty(&critical_queue) && is_queue_empty(&regular_queue)) {
+        printf("No patients currently waiting.\n");
+    }
+}
+
+void display_statistics(void) {
+    time_t current_time = time(NULL);
+    int uptime_minutes = time_diff_minutes(hospital_start_time, current_time);
+    
+    printf("\n=== HOSPITAL STATISTICS ===\n");
+    printf("System uptime: %d minutes (%.1f hours)\n", 
+           uptime_minutes, uptime_minutes / 60.0);
+    printf("Total patients served: %d\n", total_patients_served);
+    printf("Current patients waiting: %d\n", 
+           critical_queue.count + regular_queue.count);
+    printf("  - Critical: %d\n", critical_queue.count);
+    printf("  - Regular: %d\n", regular_queue.count);
+    
+    if (uptime_minutes > 0) {
+        printf("Average patients per hour: %.1f\n", 
+               (float)total_patients_served / (uptime_minutes / 60.0));
+    }
+    
+    // TODO: Add more detailed statistics
+    // - Average wait time
+    // - Peak queue lengths
+    // - Busiest hours
+    printf("===========================\n");
+}
+
+// Queue operations
+void enqueue(Queue *q, Patient *patient) {
+    if (is_queue_empty(q)) {
+        q->front = q->rear = patient;
+    } else {
+        q->rear->next = patient;
+        q->rear = patient;
+    }
+    patient->next = NULL;
+    q->count++;
+}
+
+Patient* dequeue(Queue *q) {
+    if (is_queue_empty(q)) {
+        return NULL;
+    }
+    
+    Patient *patient = q->front;
+    q->front = q->front->next;
+    
+    if (q->front == NULL) {
+        q->rear = NULL;
+    }
+    
+    q->count--;
+    return patient;
+}
+
+Patient* peek_queue(Queue *q) {
+    return q->front;
+}
+
+int is_queue_empty(Queue *q) {
+    return q->front == NULL;
+}
+
+void clear_queue(Queue *q) {
+    while (!is_queue_empty(q)) {
+        Patient *patient = dequeue(q);
+        free(patient);
+    }
+}
+
+// Patient management
+Patient* create_patient(const char *name, const char *condition, int is_critical) {
+    Patient *patient = malloc(sizeof(Patient));
+    if (!patient) {
+        printf("Memory allocation failed.\n");
+        return NULL;
+    }
+    
+    patient->id = next_patient_id++;
+    strcpy(patient->name, name);
+    strcpy(patient->condition, condition);
+    patient->is_critical = is_critical;
+    patient->arrival_time = time(NULL);
+    patient->estimated_wait_time = 0;
+    patient->next = NULL;
+    
+    return patient;
+}
+
+void update_wait_times(void) {
+    // TODO: Recalculate estimated wait times based on current queue state
+    // This is a simplified version - you can make it more sophisticated
+    
+    int critical_wait = 0;
+    Patient *current = critical_queue.front;
+    while (current) {
+        current->estimated_wait_time = critical_wait;
+        critical_wait += CRITICAL_SERVICE_TIME;
+        current = current->next;
+    }
+    
+    int regular_wait = critical_wait; // Regular patients wait for critical ones too
+    current = regular_queue.front;
+    while (current) {
+        current->estimated_wait_time = regular_wait;
+        regular_wait += REGULAR_SERVICE_TIME;
+        current = current->next;
+    }
+}
+
+int calculate_estimated_wait(int is_critical) {
+    int wait_time = 0;
+    
+    if (is_critical) {
+        // Critical patients only wait for other critical patients
+        wait_time = critical_queue.count * CRITICAL_SERVICE_TIME;
+    } else {
+        // Regular patients wait for all critical patients + regular patients ahead
+        wait_time = (critical_queue.count * CRITICAL_SERVICE_TIME) +
+                   (regular_queue.count * REGULAR_SERVICE_TIME);
+    }
+    
+    return wait_time;
+}
+
+void save_patient_log(void) {
+    FILE *file = fopen("patient_log.txt", "a");
+    if (!file) {
+        printf("Error opening log file.\n");
+        return;
+    }
+    
+    time_t current_time = time(NULL);
+    fprintf(file, "=== Hospital Session Log ===\n");
+    fprintf(file, "Session ended: %s", ctime(&current_time));
+    fprintf(file, "Patients served: %d\n", total_patients_served);
+    fprintf(file, "Remaining in critical queue: %d\n", critical_queue.count);
+    fprintf(file, "Remaining in regular queue: %d\n", regular_queue.count);
+    
+    // Log remaining patients
+    if (!is_queue_empty(&critical_queue)) {
+        fprintf(file, "Critical patients still waiting:\n");
+        Patient *current = critical_queue.front;
+        while (current) {
+            fprintf(file, "  - %s: %s\n", current->name, current->condition);
+            current = current->next;
+        }
+    }
+    
+    if (!is_queue_empty(&regular_queue)) {
+        fprintf(file, "Regular patients still waiting:\n");
+        Patient *current = regular_queue.front;
+        while (current) {
+            fprintf(file, "  - %s: %s\n", current->name, current->condition);
+            current = current->next;
+        }
+    }
+    
+    fprintf(file, "=============================\n\n");
+    fclose(file);
+    
+    printf("Patient log saved to patient_log.txt\n");
+}
+
+// Utility functions
+void print_patient(const Patient *p, int position) {
+    int current_wait = time_diff_minutes(p->arrival_time, time(NULL));
+    printf("%d. %s (ID: %d) - %s | Waiting: %d min\n",
+           position, p->name, p->id, p->condition, current_wait);
+}
+
+char* get_input(char *buffer, int size) {
+    if (fgets(buffer, size, stdin)) {
+        buffer[strcspn(buffer, "\n")] = 0;
+        return buffer;
+    }
+    return NULL;
+}
+
+void clear_input_buffer(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
+void print_time(time_t t) {
+    struct tm *tm_info = localtime(&t);
+    printf("%02d:%02d:%02d ", tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
+}
+
+int time_diff_minutes(time_t start, time_t end) {
+    return (int)((end - start) / 60);
+}
