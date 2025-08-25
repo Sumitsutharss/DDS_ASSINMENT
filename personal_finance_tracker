@@ -1,0 +1,366 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#define MAX_TRANSACTIONS 1000
+#define MAX_DESC_LEN 100
+#define MAX_CATEGORY_LEN 50
+#define FILENAME "transactions.txt"
+
+// Transaction structure
+typedef struct {
+    int id;
+    char description[MAX_DESC_LEN];
+    char category[MAX_CATEGORY_LEN];
+    float amount;  // Positive for income, negative for expenses
+    time_t date;
+    int month;     // 1-12 for easy filtering
+    int year;
+} Transaction;
+
+// Global data
+Transaction transactions[MAX_TRANSACTIONS];
+int transaction_count = 0;
+int next_id = 1;
+
+// Function prototypes
+void display_menu(void);
+void add_transaction(void);
+void view_all_transactions(void);
+void search_transactions(void);
+void filter_by_amount(void);
+void sort_transactions(void);
+void monthly_report(void);
+void save_to_file(void);
+void load_from_file(void);
+void display_ascii_chart(void);
+
+// Helper functions
+void print_transaction(const Transaction *t);
+int compare_by_date(const void *a, const void *b);
+int compare_by_amount(const void *a, const void *b);
+float calculate_monthly_total(int month, int year);
+void clear_input_buffer(void);
+
+int main() {
+    printf("=== Personal Finance Tracker ===\n");
+    printf("Loading existing data...\n");
+    load_from_file();
+
+    int choice;
+    do {
+        display_menu();
+        printf("Enter your choice: ");
+        scanf("%d", &choice);
+        clear_input_buffer();
+
+        switch(choice) {
+            case 1: add_transaction(); break;
+            case 2: view_all_transactions(); break;
+            case 3: search_transactions(); break;
+            case 4: filter_by_amount(); break;
+            case 5: sort_transactions(); break;
+            case 6: monthly_report(); break;
+            case 7: display_ascii_chart(); break;
+            case 8: save_to_file(); break;
+            case 9:
+                save_to_file();
+                printf("Data saved. Goodbye!\n");
+                break;
+            default:
+                printf("Invalid choice. Please try again.\n");
+        }
+    } while(choice != 9);
+
+    return 0;
+}
+
+void display_menu(void) {
+    printf("\n=== MAIN MENU ===\n");
+    printf("1. Add Transaction\n");
+    printf("2. View All Transactions\n");
+    printf("3. Search Transactions\n");
+    printf("4. Filter by Amount\n");
+    printf("5. Sort Transactions\n");
+    printf("6. Monthly Report\n");
+    printf("7. ASCII Spending Chart\n");
+    printf("8. Save Data\n");
+    printf("9. Exit\n");
+    printf("==================\n");
+}
+
+void add_transaction(void) {
+    if (transaction_count >= MAX_TRANSACTIONS) {
+        printf("Transaction limit reached!\n");
+        return;
+    }
+
+    Transaction *t = &transactions[transaction_count];
+    t->id = next_id++;
+
+    printf("Enter description: ");
+    fgets(t->description, MAX_DESC_LEN, stdin);
+    t->description[strcspn(t->description, "\n")] = 0; // Remove newline
+
+    printf("Enter category: ");
+    fgets(t->category, MAX_CATEGORY_LEN, stdin);
+    t->category[strcspn(t->category, "\n")] = 0;
+
+    printf("Enter amount (positive for income, negative for expense): ");
+    scanf("%f", &t->amount);
+
+    // TODO: Implement date input or use current date
+    t->date = time(NULL);
+    struct tm *tm_info = localtime(&t->date);
+    t->month = tm_info->tm_mon + 1;
+    t->year = tm_info->tm_year + 1900;
+
+    transaction_count++;
+    printf("Transaction added successfully!\n");
+}
+
+void view_all_transactions(void) {
+    if (transaction_count == 0) {
+        printf("No transactions found.\n");
+        return;
+    }
+
+    printf("\n=== ALL TRANSACTIONS ===\n");
+    printf("%-5s %-20s %-15s %-10s %-12s\n", "ID", "Description", "Category", "Amount", "Date");
+    printf("--------------------------------------------------------\n");
+
+    for (int i = 0; i < transaction_count; i++) {
+        print_transaction(&transactions[i]);
+    }
+
+    // TODO: Calculate and display totals
+    float total_income = 0, total_expenses = 0;
+    for (int i = 0; i < transaction_count; i++) {
+        if (transactions[i].amount > 0) {
+            total_income += transactions[i].amount;
+        } else {
+            total_expenses += transactions[i].amount;
+        }
+    }
+    printf("\nSummary: Income: $%.2f | Expenses: $%.2f | Balance: $%.2f\n",
+           total_income, total_expenses, total_income + total_expenses);
+}
+
+void search_transactions(void) {
+    char search_term[MAX_DESC_LEN];
+    printf("Enter search term (description or category): ");
+    fgets(search_term, MAX_DESC_LEN, stdin);
+    search_term[strcspn(search_term, "\n")] = 0;
+
+    printf("\n=== SEARCH RESULTS ===\n");
+    int found = 0;
+
+    // TODO: Implement case-insensitive search
+    for (int i = 0; i < transaction_count; i++) {
+        if (strstr(transactions[i].description, search_term) ||
+            strstr(transactions[i].category, search_term)) {
+            print_transaction(&transactions[i]);
+            found++;
+        }
+    }
+
+    if (!found) {
+        printf("No transactions found matching '%s'\n", search_term);
+    }
+}
+
+void filter_by_amount(void) {
+    float min_amount, max_amount;
+    printf("Enter minimum amount: ");
+    scanf("%f", &min_amount);
+    printf("Enter maximum amount: ");
+    scanf("%f", &max_amount);
+
+    printf("\n=== FILTERED TRANSACTIONS ===\n");
+    int found = 0;
+
+    // TODO: Implement filtering logic
+    for (int i = 0; i < transaction_count; i++) {
+        float abs_amount = transactions[i].amount < 0 ? -transactions[i].amount : transactions[i].amount;
+        if (abs_amount >= min_amount && abs_amount <= max_amount) {
+            print_transaction(&transactions[i]);
+            found++;
+        }
+    }
+
+    if (!found) {
+        printf("No transactions found in range $%.2f - $%.2f\n", min_amount, max_amount);
+    }
+}
+
+void sort_transactions(void) {
+    printf("Sort by:\n");
+    printf("1. Date (newest first)\n");
+    printf("2. Amount (highest first)\n");
+    printf("Enter choice: ");
+
+    int choice;
+    scanf("%d", &choice);
+
+    switch(choice) {
+        case 1:
+            qsort(transactions, transaction_count, sizeof(Transaction), compare_by_date);
+            printf("Transactions sorted by date.\n");
+            break;
+        case 2:
+            qsort(transactions, transaction_count, sizeof(Transaction), compare_by_amount);
+            printf("Transactions sorted by amount.\n");
+            break;
+        default:
+            printf("Invalid choice.\n");
+    }
+}
+
+void monthly_report(void) {
+    int month, year;
+    printf("Enter month (1-12): ");
+    scanf("%d", &month);
+    printf("Enter year: ");
+    scanf("%d", &year);
+
+    // TODO: Generate monthly report
+    float income = 0, expenses = 0;
+    int count = 0;
+
+    printf("\n=== MONTHLY REPORT: %02d/%d ===\n", month, year);
+    for (int i = 0; i < transaction_count; i++) {
+        if (transactions[i].month == month && transactions[i].year == year) {
+            print_transaction(&transactions[i]);
+            if (transactions[i].amount > 0) {
+                income += transactions[i].amount;
+            } else {
+                expenses += transactions[i].amount;
+            }
+            count++;
+        }
+    }
+
+    if (count == 0) {
+        printf("No transactions found for %02d/%d\n", month, year);
+    } else {
+        printf("\nMonthly Summary:\n");
+        printf("Income: $%.2f\n", income);
+        printf("Expenses: $%.2f\n", expenses);
+        printf("Net: $%.2f\n", income + expenses);
+    }
+}
+
+void display_ascii_chart(void) {
+    printf("\n=== MONTHLY SPENDING CHART ===\n");
+
+    // TODO: Implement ASCII bar chart for last 12 months
+    // This is a simplified version - you can enhance it
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    int current_year = tm_info->tm_year + 1900;
+
+    printf("Month        Expenses\n");
+    printf("--------------------\n");
+
+    for (int month = 1; month <= 12; month++) {
+        float total = 0;
+        for (int i = 0; i < transaction_count; i++) {
+            if (transactions[i].month == month &&
+                transactions[i].year == current_year &&
+                transactions[i].amount < 0) {
+                total += -transactions[i].amount; // Make positive for display
+            }
+        }
+
+        printf("%02d/2024  $%8.2f |", month, total);
+
+        // Simple bar representation (each * = $100)
+        int bars = (int)(total / 100);
+        for (int j = 0; j < bars && j < 50; j++) {
+            printf("*");
+        }
+        printf("\n");
+    }
+    printf("(Each * represents ~$100)\n");
+}
+
+void save_to_file(void) {
+    FILE *file = fopen(FILENAME, "w");
+    if (!file) {
+        printf("Error opening file for writing.\n");
+        return;
+    }
+
+    // TODO: Implement file saving
+    fprintf(file, "%d\n", transaction_count);
+    for (int i = 0; i < transaction_count; i++) {
+        Transaction *t = &transactions[i];
+        fprintf(file, "%d|%s|%s|%.2f|%ld|%d|%d\n",
+                t->id, t->description, t->category, t->amount,
+                t->date, t->month, t->year);
+    }
+
+    fclose(file);
+    printf("Data saved to %s\n", FILENAME);
+}
+
+void load_from_file(void) {
+    FILE *file = fopen(FILENAME, "r");
+    if (!file) {
+        printf("No existing data file found. Starting fresh.\n");
+        return;
+    }
+
+    // TODO: Implement file loading with error checking
+    if (fscanf(file, "%d\n", &transaction_count) != 1) {
+        printf("Error reading file format.\n");
+        fclose(file);
+        return;
+    }
+
+    for (int i = 0; i < transaction_count; i++) {
+        Transaction *t = &transactions[i];
+        if (fscanf(file, "%d|%99[^|]|%49[^|]|%f|%ld|%d|%d\n",
+                   &t->id, t->description, t->category, &t->amount,
+                   &t->date, &t->month, &t->year) != 7) {
+            printf("Error reading transaction %d\n", i);
+            break;
+        }
+        if (t->id >= next_id) {
+            next_id = t->id + 1;
+        }
+    }
+
+    fclose(file);
+    printf("Loaded %d transactions from file.\n", transaction_count);
+}
+
+// Helper function implementations
+void print_transaction(const Transaction *t) {
+    char date_str[20];
+    struct tm *tm_info = localtime(&t->date);
+    strftime(date_str, 20, "%m/%d/%Y", tm_info);
+
+    printf("%-5d %-20s %-15s $%-9.2f %s\n",
+           t->id, t->description, t->category, t->amount, date_str);
+}
+
+int compare_by_date(const void *a, const void *b) {
+    const Transaction *ta = (const Transaction*)a;
+    const Transaction *tb = (const Transaction*)b;
+    return (tb->date - ta->date); // Newest first
+}
+
+int compare_by_amount(const void *a, const void *b) {
+    const Transaction *ta = (const Transaction*)a;
+    const Transaction *tb = (const Transaction*)b;
+    if (ta->amount > tb->amount) return -1;
+    if (ta->amount < tb->amount) return 1;
+    return 0;
+}
+
+void clear_input_buffer(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
