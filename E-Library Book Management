@@ -1,0 +1,498 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#define MAX_TITLE_LEN 100
+#define MAX_AUTHOR_LEN 80
+#define MAX_ISBN_LEN 20
+#define MAX_BORROWER_LEN 50
+
+// Book structure for linked list
+typedef struct Book {
+    int id;
+    char title[MAX_TITLE_LEN];
+    char author[MAX_AUTHOR_LEN];
+    char isbn[MAX_ISBN_LEN];
+    int is_available;
+    char borrower_name[MAX_BORROWER_LEN];
+    time_t borrow_date;
+    time_t return_date;
+    struct Book *next;
+} Book;
+
+// Action structure for undo stack
+typedef enum {
+    ACTION_ADD_BOOK,
+    ACTION_BORROW_BOOK,
+    ACTION_RETURN_BOOK,
+    ACTION_REMOVE_BOOK
+} ActionType;
+
+typedef struct UndoAction {
+    ActionType type;
+    Book book_data;  // Copy of book data before action
+    int book_id;
+    struct UndoAction *next;
+} UndoAction;
+
+// Global variables
+Book *book_list = NULL;
+UndoAction *undo_stack = NULL;
+int next_book_id = 1;
+
+// Function prototypes - Main operations
+void display_menu(void);
+void add_book(void);
+void display_all_books(void);
+void search_books(void);
+void borrow_book(void);
+void return_book(void);
+void remove_book(void);
+void undo_last_action(void);
+void save_library(void);
+void load_library(void);
+
+// Linked list operations
+Book* create_book(const char *title, const char *author, const char *isbn);
+void insert_book(Book *new_book);
+Book* find_book_by_id(int id);
+Book* find_book_by_title(const char *title);
+void remove_book_from_list(int id);
+void free_book_list(void);
+int count_books(void);
+
+// Stack operations for undo
+void push_undo_action(ActionType type, const Book *book_data);
+UndoAction* pop_undo_action(void);
+void free_undo_stack(void);
+
+// Utility functions
+void print_book(const Book *book);
+void clear_input_buffer(void);
+char* get_input(char *buffer, int size);
+void display_library_stats(void);
+
+int main() {
+    printf("=== E-Library Management System ===\n");
+    printf("Loading library data...\n");
+    load_library();
+    
+    int choice;
+    do {
+        display_menu();
+        printf("Enter your choice: ");
+        scanf("%d", &choice);
+        clear_input_buffer();
+        
+        switch(choice) {
+            case 1: add_book(); break;
+            case 2: display_all_books(); break;
+            case 3: search_books(); break;
+            case 4: borrow_book(); break;
+            case 5: return_book(); break;
+            case 6: remove_book(); break;
+            case 7: undo_last_action(); break;
+            case 8: display_library_stats(); break;
+            case 9: save_library(); break;
+            case 10:
+                save_library();
+                printf("Library saved. Goodbye!\n");
+                break;
+            default:
+                printf("Invalid choice. Please try again.\n");
+        }
+    } while(choice != 10);
+    
+    // Cleanup
+    free_book_list();
+    free_undo_stack();
+    return 0;
+}
+
+void display_menu(void) {
+    printf("\n=== LIBRARY MENU ===\n");
+    printf("1. Add New Book\n");
+    printf("2. Display All Books\n");
+    printf("3. Search Books\n");
+    printf("4. Borrow Book\n");
+    printf("5. Return Book\n");
+    printf("6. Remove Book\n");
+    printf("7. Undo Last Action\n");
+    printf("8. Library Statistics\n");
+    printf("9. Save Library\n");
+    printf("10. Exit\n");
+    printf("====================\n");
+}
+
+void add_book(void) {
+    char title[MAX_TITLE_LEN], author[MAX_AUTHOR_LEN], isbn[MAX_ISBN_LEN];
+    
+    printf("Enter book title: ");
+    get_input(title, MAX_TITLE_LEN);
+    
+    printf("Enter author name: ");
+    get_input(author, MAX_AUTHOR_LEN);
+    
+    printf("Enter ISBN: ");
+    get_input(isbn, MAX_ISBN_LEN);
+    
+    // TODO: Add validation for duplicate ISBN
+    
+    Book *new_book = create_book(title, author, isbn);
+    if (new_book) {
+        insert_book(new_book);
+        
+        // Push to undo stack
+        push_undo_action(ACTION_ADD_BOOK, new_book);
+        
+        printf("Book '%s' added successfully! (ID: %d)\n", title, new_book->id);
+    } else {
+        printf("Error: Could not add book.\n");
+    }
+}
+
+void display_all_books(void) {
+    if (!book_list) {
+        printf("Library is empty.\n");
+        return;
+    }
+    
+    printf("\n=== LIBRARY COLLECTION ===\n");
+    printf("%-5s %-30s %-25s %-15s %-12s %-20s\n", 
+           "ID", "Title", "Author", "ISBN", "Status", "Borrower");
+    printf("-------------------------------------------------------------------------\n");
+    
+    Book *current = book_list;
+    int total_books = 0, available_books = 0;
+    
+    while (current) {
+        print_book(current);
+        total_books++;
+        if (current->is_available) available_books++;
+        current = current->next;
+    }
+    
+    printf("\nTotal Books: %d | Available: %d | Borrowed: %d\n", 
+           total_books, available_books, total_books - available_books);
+}
+
+void search_books(void) {
+    if (!book_list) {
+        printf("Library is empty.\n");
+        return;
+    }
+    
+    printf("Search by:\n");
+    printf("1. Title\n");
+    printf("2. Author\n");
+    printf("3. Available books only\n");
+    printf("Enter choice: ");
+    
+    int choice;
+    scanf("%d", &choice);
+    clear_input_buffer();
+    
+    char search_term[MAX_TITLE_LEN];
+    Book *current = book_list;
+    int found = 0;
+    
+    switch(choice) {
+        case 1:
+            printf("Enter title to search: ");
+            get_input(search_term, MAX_TITLE_LEN);
+            printf("\n=== SEARCH RESULTS (Title: '%s') ===\n", search_term);
+            
+            // TODO: Implement case-insensitive search
+            while (current) {
+                if (strstr(current->title, search_term)) {
+                    print_book(current);
+                    found++;
+                }
+                current = current->next;
+            }
+            break;
+            
+        case 2:
+            printf("Enter author to search: ");
+            get_input(search_term, MAX_AUTHOR_LEN);
+            printf("\n=== SEARCH RESULTS (Author: '%s') ===\n", search_term);
+            
+            while (current) {
+                if (strstr(current->author, search_term)) {
+                    print_book(current);
+                    found++;
+                }
+                current = current->next;
+            }
+            break;
+            
+        case 3:
+            printf("\n=== AVAILABLE BOOKS ===\n");
+            while (current) {
+                if (current->is_available) {
+                    print_book(current);
+                    found++;
+                }
+                current = current->next;
+            }
+            break;
+            
+        default:
+            printf("Invalid search option.\n");
+            return;
+    }
+    
+    if (!found) {
+        printf("No books found matching your criteria.\n");
+    }
+}
+
+void borrow_book(void) {
+    if (!book_list) {
+        printf("Library is empty.\n");
+        return;
+    }
+    
+    int book_id;
+    char borrower_name[MAX_BORROWER_LEN];
+    
+    printf("Enter book ID to borrow: ");
+    scanf("%d", &book_id);
+    clear_input_buffer();
+    
+    Book *book = find_book_by_id(book_id);
+    if (!book) {
+        printf("Book with ID %d not found.\n", book_id);
+        return;
+    }
+    
+    if (!book->is_available) {
+        printf("Book '%s' is already borrowed by %s.\n", 
+               book->title, book->borrower_name);
+        return;
+    }
+    
+    printf("Enter borrower name: ");
+    get_input(borrower_name, MAX_BORROWER_LEN);
+    
+    // Save state for undo
+    Book old_state = *book;
+    push_undo_action(ACTION_BORROW_BOOK, &old_state);
+    
+    // TODO: Update book status
+    book->is_available = 0;
+    strcpy(book->borrower_name, borrower_name);
+    book->borrow_date = time(NULL);
+    book->return_date = 0;  // Clear return date
+    
+    printf("Book '%s' borrowed successfully by %s!\n", book->title, borrower_name);
+}
+
+void return_book(void) {
+    int book_id;
+    printf("Enter book ID to return: ");
+    scanf("%d", &book_id);
+    
+    Book *book = find_book_by_id(book_id);
+    if (!book) {
+        printf("Book with ID %d not found.\n", book_id);
+        return;
+    }
+    
+    if (book->is_available) {
+        printf("Book '%s' is not currently borrowed.\n", book->title);
+        return;
+    }
+    
+    // Save state for undo
+    Book old_state = *book;
+    push_undo_action(ACTION_RETURN_BOOK, &old_state);
+    
+    // TODO: Update book status
+    book->is_available = 1;
+    book->return_date = time(NULL);
+    
+    // Calculate days borrowed
+    int days_borrowed = (int)((book->return_date - book->borrow_date) / (24 * 3600));
+    
+    printf("Book '%s' returned successfully!\n", book->title);
+    printf("Borrowed by: %s\n", book->borrower_name);
+    printf("Days borrowed: %d\n", days_borrowed);
+    
+    // Clear borrower info
+    strcpy(book->borrower_name, "");
+}
+
+void remove_book(void) {
+    int book_id;
+    printf("Enter book ID to remove: ");
+    scanf("%d", &book_id);
+    
+    Book *book = find_book_by_id(book_id);
+    if (!book) {
+        printf("Book with ID %d not found.\n", book_id);
+        return;
+    }
+    
+    if (!book->is_available) {
+        printf("Cannot remove book '%s' - it's currently borrowed.\n", book->title);
+        return;
+    }
+    
+    // Save state for undo
+    push_undo_action(ACTION_REMOVE_BOOK, book);
+    
+    printf("Removing book: '%s' by %s\n", book->title, book->author);
+    remove_book_from_list(book_id);
+    
+    printf("Book removed successfully!\n");
+}
+
+void undo_last_action(void) {
+    UndoAction *action = pop_undo_action();
+    if (!action) {
+        printf("No action to undo.\n");
+        return;
+    }
+    
+    // TODO: Implement undo logic for each action type
+    switch(action->type) {
+        case ACTION_ADD_BOOK:
+            printf("Undoing: Add book (ID: %d)\n", action->book_data.id);
+            remove_book_from_list(action->book_data.id);
+            break;
+            
+        case ACTION_BORROW_BOOK:
+            printf("Undoing: Borrow book '%s'\n", action->book_data.title);
+            // Restore previous state
+            Book *book = find_book_by_id(action->book_data.id);
+            if (book) {
+                *book = action->book_data;
+            }
+            break;
+            
+        case ACTION_RETURN_BOOK:
+            printf("Undoing: Return book '%s'\n", action->book_data.title);
+            book = find_book_by_id(action->book_data.id);
+            if (book) {
+                *book = action->book_data;
+            }
+            break;
+            
+        case ACTION_REMOVE_BOOK:
+            printf("Undoing: Remove book '%s'\n", action->book_data.title);
+            Book *restored_book = malloc(sizeof(Book));
+            if (restored_book) {
+                *restored_book = action->book_data;
+                restored_book->next = NULL;
+                insert_book(restored_book);
+            }
+            break;
+    }
+    
+    free(action);
+    printf("Action undone successfully!\n");
+}
+
+void display_library_stats(void) {
+    if (!book_list) {
+        printf("Library is empty.\n");
+        return;
+    }
+    
+    int total = 0, available = 0, borrowed = 0;
+    Book *current = book_list;
+    
+    // TODO: Calculate detailed statistics
+    while (current) {
+        total++;
+        if (current->is_available) {
+            available++;
+        } else {
+            borrowed++;
+        }
+        current = current->next;
+    }
+    
+    printf("\n=== LIBRARY STATISTICS ===\n");
+    printf("Total Books: %d\n", total);
+    printf("Available: %d (%.1f%%)\n", available, 
+           total > 0 ? (float)available/total * 100 : 0);
+    printf("Borrowed: %d (%.1f%%)\n", borrowed,
+           total > 0 ? (float)borrowed/total * 100 : 0);
+    printf("=========================\n");
+}
+
+// Linked list operations
+Book* create_book(const char *title, const char *author, const char *isbn) {
+    Book *new_book = malloc(sizeof(Book));
+    if (!new_book) {
+        printf("Memory allocation failed.\n");
+        return NULL;
+    }
+    
+    new_book->id = next_book_id++;
+    strcpy(new_book->title, title);
+    strcpy(new_book->author, author);
+    strcpy(new_book->isbn, isbn);
+    new_book->is_available = 1;
+    strcpy(new_book->borrower_name, "");
+    new_book->borrow_date = 0;
+    new_book->return_date = 0;
+    new_book->next = NULL;
+    
+    return new_book;
+}
+
+void insert_book(Book *new_book) {
+    // Insert at beginning of list
+    new_book->next = book_list;
+    book_list = new_book;
+}
+
+Book* find_book_by_id(int id) {
+    Book *current = book_list;
+    while (current) {
+        if (current->id == id) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+void remove_book_from_list(int id) {
+    if (!book_list) return;
+    
+    // If first book matches
+    if (book_list->id == id) {
+        Book *temp = book_list;
+        book_list = book_list->next;
+        free(temp);
+        return;
+    }
+    
+    // Search for book to remove
+    Book *current = book_list;
+    while (current->next && current->next->id != id) {
+        current = current->next;
+    }
+    
+    if (current->next) {
+        Book *temp = current->next;
+        current->next = temp->next;
+        free(temp);
+    }
+}
+
+// Stack operations for undo
+void push_undo_action(ActionType type, const Book *book_data) {
+    UndoAction *action = malloc(sizeof(UndoAction));
+    if (!action) {
+        printf("Memory allocation failed for undo action.\n");
+        return;
+    }
+    
+    action->type = type;
+    action->book_data = *book_data;  // Copy book data
